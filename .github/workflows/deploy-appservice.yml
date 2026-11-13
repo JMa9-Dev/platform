@@ -1,0 +1,114 @@
+# Reusable workflow: deploy infrastructure (Bicep) and a zipped app to Azure App Service.
+#
+# Authentication: OIDC (workload identity federation) via azure/login. No secrets.
+# The calling repository's GitHub Environment (dev / prod) must define these variables:
+#   AZURE_CLIENT_ID        client id of the environment's user-assigned managed identity
+#   AZURE_TENANT_ID
+#   AZURE_SUBSCRIPTION_ID
+#   AZURE_RESOURCE_GROUP   resource group the identity is allowed to deploy to
+# scripts/bootstrap-app.sh in this repository creates all of the above.
+#
+# The caller must grant: permissions: { id-token: write, contents: read }
+name: deploy-appservice
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub Environment name, e.g. dev or prod
+        type: string
+        required: true
+      app-name:
+        description: Short application name (used in deployment names)
+        type: string
+        required: true
+      artifact-name:
+        description: Artifact produced by dotnet-publish.yml
+        type: string
+        default: app
+      bicep-param-file:
+        description: Bicep parameter file. Defaults to infra/<environment>.bicepparam
+        type: string
+        default: ""
+      platform-repository:
+        description: Repository holding the shared Bicep templates
+        type: string
+        default: JMa9-Dev/platform
+      platform-ref:
+        description: Git ref of the platform repository to use
+        type: string
+        default: main
+      health-path:
+        description: Path used for the post-deploy smoke test
+        type: string
+        default: /healthz
+    outputs:
+      url:
+        description: Public URL of the deployed app
+        value: ${{ jobs.deploy.outputs.url }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.infra.outputs.url }}
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    outputs:
+      url: ${{ steps.infra.outputs.url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Checkout shared platform templates
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.platform-repository }}
+          ref: ${{ inputs.platform-ref }}
+          path: .platform
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy infrastructure (Bicep)
+        id: infra
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          APP_NAME: ${{ inputs.app-name }}
+          PARAM_FILE: ${{ inputs.bicep-param-file }}
+        run: |
+          set -euo pipefail
+          PARAM_FILE="${PARAM_FILE:-infra/${ENVIRONMENT}.bicepparam}"
+          outputs=$(az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "${APP_NAME}-${ENVIRONMENT}-${GITHUB_RUN_ID}" \
+            --parameters "$PARAM_FILE" \
+            --query properties.outputs --output json)
+          echo "webapp=$(jq -r .webAppName.value <<<"$outputs")" >> "$GITHUB_OUTPUT"
+          echo "url=https://$(jq -r .defaultHostName.value <<<"$outputs")" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy application
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          WEBAPP: ${{ steps.infra.outputs.webapp }}
+        run: az webapp deploy --resource-group "$RESOURCE_GROUP" --name "$WEBAPP" --src-path app.zip --type zip
+
+      - name: Smoke test
+        env:
+          URL: ${{ steps.infra.outputs.url }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors "${URL}${HEALTH_PATH}"

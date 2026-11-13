@@ -1,0 +1,48 @@
+# Reusable workflow: publish a .NET web project once and store it as a zip artifact.
+# The same artifact is then deployed to every environment (build once, deploy many).
+name: dotnet-publish
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: Path to the .csproj to publish, e.g. src/MyApp/MyApp.csproj
+        type: string
+        required: true
+      dotnet-version:
+        description: .NET SDK version to install
+        type: string
+        default: "10.0.x"
+      artifact-name:
+        description: Name of the uploaded artifact
+        type: string
+        default: app
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Publish
+        env:
+          PROJECT: ${{ inputs.project }}
+        run: dotnet publish "$PROJECT" --configuration Release --output publish
+
+      - name: Zip package
+        run: cd publish && zip -qr ../app.zip .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: app.zip
+          if-no-files-found: error
+          retention-days: 14
