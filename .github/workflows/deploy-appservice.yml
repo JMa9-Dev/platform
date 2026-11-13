@@ -63,10 +63,10 @@ jobs:
     outputs:
       url: ${{ steps.infra.outputs.url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Checkout shared platform templates
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.platform-repository }}
           ref: ${{ inputs.platform-ref }}
