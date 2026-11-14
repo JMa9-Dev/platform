@@ -52,7 +52,8 @@ main ─► dotnet-ci ─► dotnet-publish ─► deploy dev   [─► (approva
 
 Each environment has its own managed identity with Contributor rights on its own
 resource group only. The federated credential trusts only
-`repo:JMa9-Dev/<app>:environment:<env>`, so a workflow can reach prod only through
+`repo:JMa9-Dev@<org-id>/<app>@<repo-id>:environment:<env>`
+(GitHub includes the immutable org and repo ids in the subject), so a workflow can reach prod only through
 the approved `prod` environment.
 
 ## Adding prod

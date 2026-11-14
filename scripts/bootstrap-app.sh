@@ -4,7 +4,7 @@
 # For each environment (default: dev; set ENVIRONMENTS="dev prod" to add prod) this script:
 #   1. creates a resource group               rg-<app>-<env>
 #   2. creates a user-assigned managed identity id-github-<app>-<env>
-#   3. adds a federated credential trusting   repo:<org>/<app>:environment:<env>
+#   3. adds a federated credential trusting   repo:<org>@<org-id>/<app>@<repo-id>:environment:<env>
 #   4. grants the identity Contributor on that resource group only
 #   5. creates the GitHub Environment and stores the Azure ids as environment variables
 #   6. limits deployments to the main branch; prod also requires approval
@@ -25,6 +25,10 @@ REPO="$ORG/$APP"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
 REVIEWER_ID=$(gh api "users/$REVIEWER" --jq .id)
+# GitHub puts immutable owner/repo ids in the OIDC subject claim:
+#   repo:<org>@<org-id>/<repo>@<repo-id>:environment:<env>
+OWNER_ID=$(gh api "repos/$REPO" --jq .owner.id)
+REPO_ID=$(gh api "repos/$REPO" --jq .id)
 
 echo "Subscription: $(az account show --query name -o tsv) ($SUBSCRIPTION_ID)"
 echo "Repository:   $REPO"
@@ -42,13 +46,14 @@ for ENV in ${ENVIRONMENTS:-dev}; do
   CLIENT_ID=$(az identity show --name "$IDENTITY" --resource-group "$RG" --query clientId -o tsv)
   PRINCIPAL_ID=$(az identity show --name "$IDENTITY" --resource-group "$RG" --query principalId -o tsv)
 
-  echo "==> $ENV: federated credential for repo:$REPO:environment:$ENV"
+  SUBJECT="repo:$ORG@$OWNER_ID/$APP@$REPO_ID:environment:$ENV"
+  echo "==> $ENV: federated credential for $SUBJECT"
   az identity federated-credential create \
     --name "github-$ENV" \
     --identity-name "$IDENTITY" \
     --resource-group "$RG" \
     --issuer "https://token.actions.githubusercontent.com" \
-    --subject "repo:$REPO:environment:$ENV" \
+    --subject "$SUBJECT" \
     --audiences "api://AzureADTokenExchange" \
     --output none
 

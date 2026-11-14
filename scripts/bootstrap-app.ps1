@@ -6,7 +6,7 @@
   For each environment (default: dev only; add prod with -Environments dev,prod):
     - resource group                  rg-<app>-<env>
     - user-assigned managed identity  id-github-<app>-<env>
-    - federated credential trusting   repo:<org>/<app>:environment:<env>
+    - federated credential trusting   repo:<org>@<org-id>/<app>@<repo-id>:environment:<env>
     - Contributor role on that resource group only
   Then in GitHub (<org>/<app>):
     - one GitHub environment per Azure environment, deployments from main only
@@ -95,10 +95,17 @@ $result = [ordered]@{
     environments   = [ordered]@{}
 }
 
+# GitHub puts immutable owner/repo ids in the OIDC subject claim:
+#   repo:<org>@<org-id>/<repo>@<repo-id>:environment:<env>
+# The ids survive renames, so a renamed/recreated repo can't inherit this trust.
+# (Simple --jq expressions only: PowerShell 5.1 mangles embedded quotes in native arguments.)
+$ownerId = Invoke-Gh api "repos/$Org/$App" --jq .owner.id
+$repoId  = Invoke-Gh api "repos/$Org/$App" --jq .id
+
 foreach ($envName in $Environments) {
     $rg       = "rg-$App-$envName"
     $identity = "id-github-$App-$envName"
-    $subject  = "repo:$Org/${App}:environment:$envName"
+    $subject  = "repo:$Org@$ownerId/$App@${repoId}:environment:$envName"
 
     Write-Host "==> [$envName] resource group $rg"
     Invoke-Az group create --name $rg --location $Location --tags "app=$App" "environment=$envName" --output none | Out-Null
@@ -109,7 +116,7 @@ foreach ($envName in $Environments) {
     $principalId = Invoke-Az identity show --name $identity --resource-group $rg --query principalId -o tsv
 
     Write-Host "==> [$envName] federated credential for $subject"
-    & az identity federated-credential show --name "github-$envName" --identity-name $identity --resource-group $rg --output none 2>$null
+    $currentSubject = & az identity federated-credential show --name "github-$envName" --identity-name $identity --resource-group $rg --query subject -o tsv 2>$null
     if ($LASTEXITCODE -ne 0) {
         Invoke-Az identity federated-credential create `
             --name "github-$envName" `
@@ -118,6 +125,15 @@ foreach ($envName in $Environments) {
             --issuer "https://token.actions.githubusercontent.com" `
             --subject $subject `
             --audiences "api://AzureADTokenExchange" `
+            --output none | Out-Null
+    }
+    elseif ($currentSubject -ne $subject) {
+        Write-Host "    updating subject (was $currentSubject)"
+        Invoke-Az identity federated-credential update `
+            --name "github-$envName" `
+            --identity-name $identity `
+            --resource-group $rg `
+            --subject $subject `
             --output none | Out-Null
     }
 
