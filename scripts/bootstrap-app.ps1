@@ -26,7 +26,10 @@ param(
     [string[]]$Environments = @("dev")
 )
 
-$ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 turns any stderr output of a native command (az, gh) into a
+# terminating error when ErrorActionPreference is "Stop", even for harmless messages.
+# Keep "Continue" and check $LASTEXITCODE explicitly instead (Invoke-Az / Invoke-Gh).
+$ErrorActionPreference = "Continue"
 
 function Invoke-Az {
     # Runs az and fails the script on a non-zero exit code.
