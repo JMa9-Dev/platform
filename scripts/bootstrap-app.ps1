@@ -123,8 +123,9 @@ foreach ($envName in $Environments) {
 
     Write-Host "==> [$envName] Contributor role on $rg"
     $scope = "/subscriptions/$subscriptionId/resourceGroups/$rg"
-    $existing = Invoke-Az role assignment list --assignee $principalId --role Contributor --scope $scope --query "length(@)" -o tsv
-    if ($existing -eq "0") {
+    # Note: avoid parentheses in --query; az.cmd on Windows passes arguments through cmd.exe.
+    $existing = @(Invoke-Az role assignment list --assignee $principalId --role Contributor --scope $scope --query "[].id" -o tsv | Where-Object { $_ })
+    if ($existing.Count -eq 0) {
         # A new identity can take a moment to replicate; retry a few times.
         $assigned = $false
         for ($i = 1; $i -le 6 -and -not $assigned; $i++) {
