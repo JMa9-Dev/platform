@@ -3,13 +3,13 @@
   Azure side of the GitHub -> Azure OIDC bootstrap for one application.
 
 .DESCRIPTION
-  For each environment (dev, prod):
+  For each environment (default: dev only; add prod with -Environments dev,prod):
     - resource group                  rg-<app>-<env>
     - user-assigned managed identity  id-github-<app>-<env>
     - federated credential trusting   repo:<org>/<app>:environment:<env>
     - Contributor role on that resource group only
   Then in GitHub (<org>/<app>):
-    - environments dev and prod, deployments allowed from main only
+    - one GitHub environment per Azure environment, deployments from main only
     - prod requires approval by the signed-in GitHub user
     - environment variables AZURE_CLIENT_ID, AZURE_TENANT_ID,
       AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP
@@ -23,7 +23,7 @@ param(
     [Parameter(Mandatory = $true)][string]$App,
     [string]$Location = "swedencentral",
     [string]$Org = "JMa9-Dev",
-    [string[]]$Environments = @("dev", "prod")
+    [string[]]$Environments = @("dev")
 )
 
 $ErrorActionPreference = "Stop"
