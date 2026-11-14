@@ -8,7 +8,8 @@ workflows and Bicep templates for deploying .NET apps to Azure App Service.
 - Code in GitHub, deployments with GitHub Actions.
 - Azure login with OIDC (workload identity federation) – no passwords or client secrets.
 - Infrastructure as code (Bicep).
-- Environments: `dev` (automatic deploy from `main`) and `prod` (GitHub Environment with approval).
+- Environments: `dev` (automatic deploy from `main`). `prod` (GitHub Environment with approval)
+  is added only when an app is ready for real use – see *Adding prod* below.
 - Build, lint and tests run on every pull request before merge.
 
 ## Contents
@@ -28,11 +29,15 @@ workflows and Bicep templates for deploying .NET apps to Azure App Service.
    `../.platform/infra/appservice/main.bicep`.
 3. Add `.github/workflows/pr.yml` and `.github/workflows/deploy.yml` calling the
    reusable workflows here (copy from `hello-app`).
-4. Run the bootstrap once:
+4. Run the bootstrap once (creates the `dev` environment):
+
+   ```powershell
+   # Windows
+   powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap-app.ps1 -App <app-name>
+   ```
 
    ```bash
-   az login
-   gh auth login
+   # macOS / Linux
    ./scripts/bootstrap-app.sh <app-name> swedencentral JMa9-Dev
    ```
 
@@ -42,13 +47,24 @@ workflows and Bicep templates for deploying .NET apps to Azure App Service.
 
 ```
 PR ─► dotnet-ci (format, build, test)          ── must pass before merge
-main ─► dotnet-ci ─► dotnet-publish ─► deploy dev ─► (approval) ─► deploy prod
+main ─► dotnet-ci ─► dotnet-publish ─► deploy dev   [─► (approval) ─► deploy prod, once added]
 ```
 
 Each environment has its own managed identity with Contributor rights on its own
 resource group only. The federated credential trusts only
 `repo:JMa9-Dev/<app>:environment:<env>`, so a workflow can reach prod only through
 the approved `prod` environment.
+
+## Adding prod
+
+When an app is ready for real use:
+
+1. Re-run the bootstrap with prod: `-Environments dev,prod` (PowerShell) or
+   `ENVIRONMENTS="dev prod" ./scripts/bootstrap-app.sh <app>` (bash).
+   The prod environment requires approval by the signed-in GitHub user.
+2. Add `infra/prod.bicepparam` (e.g. `skuName = 'B1'`).
+3. Add a `deploy-prod` job to the app's `deploy.yml` with `needs: deploy-dev` and
+   `environment: prod` (same shape as `deploy-dev`).
 
 ## Versioning
 

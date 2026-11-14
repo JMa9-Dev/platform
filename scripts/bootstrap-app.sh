@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time bootstrap for a new application repository.
 #
-# For each environment (dev, prod) this script:
+# For each environment (default: dev; set ENVIRONMENTS="dev prod" to add prod) this script:
 #   1. creates a resource group               rg-<app>-<env>
 #   2. creates a user-assigned managed identity id-github-<app>-<env>
 #   3. adds a federated credential trusting   repo:<org>/<app>:environment:<env>
@@ -31,7 +31,7 @@ echo "Repository:   $REPO"
 read -r -p "Continue? [y/N] " answer
 [[ "$answer" =~ ^[Yy]$ ]] || exit 1
 
-for ENV in dev prod; do
+for ENV in ${ENVIRONMENTS:-dev}; do
   RG="rg-$APP-$ENV"
   IDENTITY="id-github-$APP-$ENV"
   echo "==> $ENV: resource group $RG"
